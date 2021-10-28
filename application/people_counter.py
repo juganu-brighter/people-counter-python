@@ -47,6 +47,18 @@ if(MQTT_SERVER != None):
     MQTT_HOST = MQTT_SERVER.split(":")[0]
     MQTT_PORT = int(MQTT_SERVER.split(":")[1])
 
+log.basicConfig(level=os.environ.get("LOGLEVEL", "INFO"))
+
+log.info("MQTT_SERVER:{}".format(MQTT_SERVER))
+
+SKIP_INTERVAL_SEC = int(os.environ.get('SKIP_INTERVAL_SEC', 0))
+log.info("SKIP_INTERVAL_SEC:{}".format(SKIP_INTERVAL_SEC))
+
+FORCE_IMG = int(os.environ.get('FORCE_IMG', 0))
+log.info("FORCE_IMG:{}".format(FORCE_IMG))
+
+
+
 MQTT_KEEPALIVE_INTERVAL = 60
 
 CONFIG_FILE = '../resources/config.json'
@@ -123,6 +135,8 @@ def main():
 
     :return: None
     """
+    now = time.time()
+
 
     # Connect to the MQTT server
     client = mqtt.Client()
@@ -139,6 +153,9 @@ def main():
     last_count = 0
     total_count = 0
     start_time = 0
+    current_interval = 0
+    current_interval_start_time = 0
+    send_img = True
 
     # Initialise the class
     infer_network = Network()
@@ -173,6 +190,7 @@ def main():
     prob_threshold = args.prob_threshold
     initial_w = cap.get(3)
     initial_h = cap.get(4)
+    msg_id = 0
     while cap.isOpened():
         flag, frame = cap.read()
         if not flag:
@@ -206,22 +224,28 @@ def main():
             if current_count > last_count:
                 start_time = time.time()
                 total_count = total_count + current_count - last_count
-                client.publish("person", json.dumps({"total": total_count}))
+                # client.publish("person", json.dumps({"total": total_count}))
 
             # Person duration in the video is calculated
             if current_count < last_count:
                 duration = int(time.time() - start_time)
                 # Publish messages to the MQTT server
-                client.publish("person/duration",
-                               json.dumps({"duration": duration}))
+                # client.publish("person/duration",
+                #                json.dumps({"duration": duration}))
                                
             image_base64 = "None"
-            if current_count != last_count and current_count > 0:
+            current_interval = int(time.time() - current_interval_start_time)
+
+            if (current_count != last_count and current_count > 0):
+                send_img = send_img or FORCE_IMG > 0
+                log.info("Count changed from:{} to:{} at {}".format(last_count, current_count, time.time()))
+
+            if send_img and current_interval >= SKIP_INTERVAL_SEC:
                 frame2send = cv2.resize(frame, (640, 480))
                 jpg_str = cv2.imencode('.jpg', frame2send)[1].tostring()
                 base_64_enc = base64.b64encode(jpg_str)
                 image_base64 = base_64_enc.decode('utf-8')
-
+                send_img = False
                 if DISPLAY_IMAGE:
                     decoded_data = base64.b64decode(image_base64)
                     if decoded_data is None:
@@ -233,8 +257,16 @@ def main():
                         cv2.imshow("Detected Person!", img)
                         cv2.waitKey(1)
 
-            client.publish("person", json.dumps({"count": current_count, "image_base64": image_base64}))
+            if current_interval >= SKIP_INTERVAL_SEC:
+                current_interval_start_time = time.time()
+                client.publish("person", json.dumps({"msg_id": msg_id, "timestamp": time.time(),  "count": current_count, "image_base64": image_base64}))
+                msg_id += 1
+
             last_count = current_count
+            
+            # reset msg_id
+            if msg_id > 100000000:
+                msg_id = 0
 
             if key_pressed == 27:
                 break

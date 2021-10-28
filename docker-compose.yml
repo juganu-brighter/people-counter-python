@@ -1,0 +1,50 @@
+version: "3"
+services:
+  peoplecounterpython:
+    container_name: peoplecounterpython
+    image: ghcr.io/juganu-brighter/people-counter-python/peoplecounterpython:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+    #   args:
+    #       OV_IMAGE_REGISTRY: openvino
+    #       OV_IMAGE_VERSION: ubuntu18_dev:2021.2
+    device_cgroup_rules:
+      - 'c 189:* rmw'
+    shm_size: "8gb"
+    ulimits:
+      memlock: -1
+      stack: 67108864
+    volumes:
+      - /dev/bus/usb:/dev/bus/usb
+      # uncomment for debug
+      # - $PWD/application:/application
+    environment:
+      - MQTT_SERVER=${MQTT_SERVER:-localhost:1881}
+      - SKIP_INTERVAL_SEC=${SKIP_INTERVAL_SEC:-5}
+      - FORCE_IMG=${FORCE_IMG:-0}
+    # Uncomment with proper source to access webcam from docker
+    devices:
+      - /dev/video0:/dev/video0
+      - /dev/dri:/dev/dri
+    restart: unless-stopped
+    # working_dir: $OTE_DIR/models/$OTE_TYPE
+    # entrypoint: /bin/bash
+    command: ['python3', 'people_counter.py', '-m', '/opt/intel/openvino/deployment_tools/open_model_zoo/tools/downloader/intel/person-detection-retail-0013/FP32/person-detection-retail-0013.xml']
+    ports:
+      - '1125:1125'
+    depends_on:
+      - "mqtt_gw"
+
+  mqtt_gw:
+    restart: unless-stopped
+    container_name: mqtt_gw
+    image: "hivemq/hivemq-ce"
+    expose:
+        - 11883
+    ports:
+      - "11883:1883"
+    volumes:
+      - ~/.hivemq/conf:/opt/hivemq/conf
+      - ~/.hivemq/data:/opt/hivemq/data
+      - ~/.hivemq/log:/opt/hivemq/log
