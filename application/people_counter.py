@@ -237,8 +237,10 @@ def main():
             current_interval = int(time.time() - current_interval_start_time)
 
             if (current_count != last_count and current_count > 0):
-                send_img = send_img or FORCE_IMG > 0
+                send_img = True
                 log.info("Count changed from:{} to:{} at {}".format(last_count, current_count, time.time()))
+            
+            send_img = send_img or FORCE_IMG > 0
 
             if send_img and current_interval >= SKIP_INTERVAL_SEC:
                 frame2send = cv2.resize(frame, (640, 480))
